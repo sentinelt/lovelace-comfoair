@@ -8,7 +8,7 @@ Visualization inspired by [TimWeyand/lovelace-comfoair](https://github.com/TimWe
 
 ## Features
 
-- Crossed airflows (outside / extract / exhaust / supply) with a **temperature color scale** (OKLCH, blue → dark red)
+- Crossed airflows (outside / extract / exhaust / supply) with a **fixed temperature color scale** (OKLCH: dark blue ≤ −20 °C → red ≥ 40 °C)
 - **Heat recovery %** computed from the four temperatures (hidden when bypass is open)
 - Setpoint (− / +) and fan modes (Off / Low / Medium / High)
 - Status row: Fan, Filter, Bypass, Preheat, Summer/Winter
@@ -70,9 +70,9 @@ prefix: esphome_comfoair200
 | `animation` | no | `static` | `static` or `animated` (flow particles + spinning fans) |
 | `animation_speed_source` | no | `fixed` | `fixed` (%) or `level` (from supply/return air level) |
 | `animation_speed` | no | `50` | Speed when source is `fixed` (10–200; 100 = baseline) |
-| `color_scale` | no | `auto` | `auto` stretches over current temps; `fixed` uses min/max |
-| `temp_min` | no | `-10` | Lower bound for fixed color scale (°C) |
-| `temp_max` | no | `30` | Upper bound for fixed color scale (°C) |
+| `color_scale` | no | `fixed` | `fixed` maps −20…40 °C (dark blue→red); `auto` stretches over current temps |
+| `temp_min` | no | `-20` | Lower bound for fixed color scale (°C); at or below → dark blue |
+| `temp_max` | no | `40` | Upper bound for fixed color scale (°C); at or above → red |
 | `show_legend` | no | `false` | Show temperature color legend |
 
 ### Entity IDs

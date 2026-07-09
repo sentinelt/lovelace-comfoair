@@ -19,9 +19,9 @@ import { svg } from "https://unpkg.com/lit-html@1.4.1/lit-html.js?module";
  *   animation: static | animated                        # default static
  *   animation_speed_source: fixed | level               # default fixed
  *   animation_speed: 50                                 # 10–200 %, fixed source
- *   color_scale: auto | fixed                           # default auto
- *   temp_min: -10
- *   temp_max: 30
+ *   color_scale: fixed | auto                           # default fixed
+ *   temp_min: -20                                       # dark blue at/below this
+ *   temp_max: 40                                        # red at/above this
  *   show_legend: false
  *
  * Entity IDs default to {domain}.{prefix}_{suffix}. Override any with a full
@@ -73,8 +73,12 @@ function rampColor(f) {
   return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${H.toFixed(1)})`;
 }
 
-function tempDomain(values, mode = "auto", min = -10, max = 30) {
-  if (mode === "fixed") return [min, max];
+/** Default fixed scale: dark blue ≤ -20 °C, red ≥ 40 °C. */
+const DEFAULT_TEMP_MIN = -20;
+const DEFAULT_TEMP_MAX = 40;
+
+function tempDomain(values, mode = "fixed", min = DEFAULT_TEMP_MIN, max = DEFAULT_TEMP_MAX) {
+  if (mode !== "auto") return [min, max];
   const v = values.filter((x) => x != null && !Number.isNaN(x));
   if (v.length === 0) return [min, max];
   let mn = Math.min(...v);
@@ -433,15 +437,20 @@ class ComfoAirCard extends LitElement {
     const fanModeLc = fanMode?.toLowerCase?.() ?? "";
     const setpoint = climate?.attributes?.temperature;
     const animated = cfg.animation === "animated";
-    const scale = cfg.color_scale === "fixed" ? "fixed" : "auto";
+    // Fixed scale by default: -20 °C → dark blue, 40 °C → red (auto only if requested)
+    const scale = cfg.color_scale === "auto" ? "auto" : "fixed";
     const running = !!fanModeLc && fanModeLc !== "off";
 
     const t1 = this._numState(ids.outside);
     const t2 = this._numState(ids.exhaust);
     const t3 = this._numState(ids.returnTemp);
     const t4 = this._numState(ids.supply);
-    const tmin = Number.isFinite(Number(cfg.temp_min)) ? Number(cfg.temp_min) : -10;
-    const tmax = Number.isFinite(Number(cfg.temp_max)) ? Number(cfg.temp_max) : 30;
+    const tmin = Number.isFinite(Number(cfg.temp_min))
+      ? Number(cfg.temp_min)
+      : DEFAULT_TEMP_MIN;
+    const tmax = Number.isFinite(Number(cfg.temp_max))
+      ? Number(cfg.temp_max)
+      : DEFAULT_TEMP_MAX;
     const dom = tempDomain([t1, t2, t3, t4], scale, tmin, tmax);
     const [c1, c2, c3, c4] = [t1, t2, t3, t4].map((v) => tempColor(v, dom));
 

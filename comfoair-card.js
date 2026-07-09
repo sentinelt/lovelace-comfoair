@@ -272,6 +272,101 @@ function hasActiveError(raw) {
   return lower !== "none" && lower !== "ok" && lower !== "unknown" && lower !== "unavailable";
 }
 
+/**
+ * Human-readable ComfoAir classic fault codes (UART 0xDA A/E/EA families).
+ *
+ * Wording from Zehnder installer manuals §2.10.1 “Malfunction alerts”:
+ *   - ComfoAir 350 Luxe (most complete table: A0–A11, E1–E4, EA1–EA2)
+ *   - ComfoAir 550 / ComfoAir Standard 300–375 (cross-check; some options N/A)
+ *
+ * Codes that appear in the protocol bit maps but not in those manuals
+ * (A9, A12–A15, E5–E8, EA3–EA8) fall back to the raw code only.
+ */
+const FAULT_MESSAGES = {
+  A0: "NTC sensor TGe is defective (geothermal heat exchanger temperature)",
+  A1: "NTC sensor T1 is defective (outside air temperature)",
+  A2: "NTC sensor T2 is defective (supply air temperature)",
+  A3: "NTC sensor T3 is defective (return air temperature)",
+  A4: "NTC sensor T4 is defective (exhaust air temperature)",
+  A5: "Malfunction in the bypass motor",
+  A6: "Malfunction in the preheater element motor",
+  A7: "Preheater element does not heat sufficiently",
+  A8: "Preheater element becomes too hot",
+  A10: "NTC sensor Tch is defective (extractor hood temperature)",
+  A11: "NTC sensor Tah is defective (afterheater temperature)",
+  E1: "Exhaust fan not rotating",
+  E2: "Supply fan not rotating",
+  E3: "Extractor hood temperature too high",
+  E4: "ComfoAir has been switched off by external contact",
+  EA1: "Enthalpy sensor measures excessive relative humidity (RH)",
+  EA2: "No communication between the enthalpy sensor and the ComfoAir",
+};
+
+/** Compact chip labels (same manual meanings, shorter for the status row). */
+const FAULT_SHORT = {
+  A0: "Geothermal sensor (TGe)",
+  A1: "Outside air sensor (T1)",
+  A2: "Supply air sensor (T2)",
+  A3: "Return air sensor (T3)",
+  A4: "Exhaust air sensor (T4)",
+  A5: "Bypass motor",
+  A6: "Preheater motor",
+  A7: "Preheater not heating",
+  A8: "Preheater overheating",
+  A10: "Hood sensor (Tch)",
+  A11: "Afterheater sensor (Tah)",
+  E1: "Exhaust fan stopped",
+  E2: "Supply fan stopped",
+  E3: "Hood temperature high",
+  E4: "Off by external contact",
+  EA1: "Enthalpy humidity high",
+  EA2: "Enthalpy sensor offline",
+};
+
+/** Split esphome error_status text ("A1, E2, EA1") into normalised codes. */
+function parseErrorCodes(raw) {
+  return String(raw)
+    .split(/[,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => s.toUpperCase());
+}
+
+/** One code → full manual-style line for tooltips. */
+function describeFault(code) {
+  const key = String(code || "")
+    .trim()
+    .toUpperCase();
+  if (!key) return "";
+  const msg = FAULT_MESSAGES[key];
+  return msg ? `${key}: ${msg}` : key;
+}
+
+/**
+ * Format error_status for the Error chip.
+ * @returns {{ sub: string, title: string }}
+ */
+function formatErrorChip(raw) {
+  if (!hasActiveError(raw)) {
+    return { sub: "None", title: "No active errors" };
+  }
+  const codes = parseErrorCodes(raw);
+  if (!codes.length) {
+    return { sub: "None", title: "No active errors" };
+  }
+  const sub = codes
+    .map((c) => {
+      const short = FAULT_SHORT[c];
+      return short ? `${c} · ${short}` : c;
+    })
+    .join("; ");
+  const detail = codes.map(describeFault).join("\n");
+  return {
+    sub,
+    title: `${detail}\n\nClick to reset errors`,
+  };
+}
+
 /** Status chip data (English labels). Optional action: filter_reset | error_reset. */
 function statusChip(kind, raw, fanMode) {
   const on = raw === "on" || raw === "Full" || raw === "full";
@@ -298,7 +393,7 @@ function statusChip(kind, raw, fanMode) {
       };
     case "error": {
       const active = hasActiveError(raw);
-      const sub = active ? String(raw) : "None";
+      const { sub, title } = formatErrorChip(raw);
       return {
         icon: active ? "mdi:alert-circle" : "mdi:check-circle-outline",
         label: "Error",
@@ -306,7 +401,7 @@ function statusChip(kind, raw, fanMode) {
         active,
         color: "#e53935",
         action: active ? "error_reset" : null,
-        title: active ? `Click to reset errors (${sub})` : "No active errors",
+        title,
       };
     }
     case "bypass":
@@ -1078,7 +1173,7 @@ class ComfoAirCard extends LitElement {
               <ha-icon icon=${c.icon}></ha-icon>
               <span class="nm">${c.label}</span>
               ${c.sub
-                ? html`<span class="vs" title=${c.sub}>${c.sub}</span>`
+                ? html`<span class="vs" title=${c.title || c.sub}>${c.sub}</span>`
                 : ""}
             </div>`
           )}

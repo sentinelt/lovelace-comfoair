@@ -126,7 +126,9 @@ Override any of those with a full entity ID using the same key name, e.g. `outsi
 The status row shows fan, filter, **error**, bypass, preheat, and season.
 
 - **Filter** chip is active when status is `Full`. Click it to confirm and press `button.{prefix}_filter_reset` (resets the unit’s filter timer).
-- **Error** chip shows active fault codes from `error_status` (e.g. `A1, E2`), or `None` when clear. Click when active to confirm and press `button.{prefix}_error_reset`.
+- **Error** chip shows active faults from `error_status` as human-readable text (e.g. `A1 · Outside air sensor (T1)`), or `None` when clear. Hover the chip for the full installer-manual wording. Click when active to confirm and press `button.{prefix}_error_reset`.
+
+Fault wording follows Zehnder ComfoAir installer manuals §2.10.1 (350 Luxe primary; 550 / Standard 300–375 cross-check). Unknown protocol codes (not listed in those manuals) are shown as the raw code only. Mapping is card-side only; ESPHome still publishes codes such as `A1, E2`.
 
 Requires esphome-comfoair with `error_status`, `filter_reset`, and `error_reset` configured under `comfoair:`.
 

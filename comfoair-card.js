@@ -335,6 +335,34 @@ class ComfoAirCard extends LitElement {
     this.config = config;
   }
 
+  static async getConfigElement() {
+    return document.createElement("comfoair-card-editor");
+  }
+
+  static getStubConfig(hass) {
+    if (!hass?.states) {
+      return { entity: "" };
+    }
+    const climates = Object.keys(hass.states).filter((id) =>
+      id.startsWith("climate.")
+    );
+    const climate =
+      climates.find((id) => /comfo|wtw|ca\d{3}|esphome/i.test(id)) ||
+      climates[0] ||
+      "";
+    if (!climate) {
+      return { entity: "" };
+    }
+    return {
+      entity: climate,
+      prefix: resolvePrefix(hass, climate, undefined),
+      animation: "static",
+      color_scale: "fixed",
+      temp_min: DEFAULT_TEMP_MIN,
+      temp_max: DEFAULT_TEMP_MAX,
+    };
+  }
+
   getCardSize() {
     return 5;
   }
@@ -1188,7 +1216,352 @@ class ComfoAirCard extends LitElement {
   }
 }
 
+/** Fire a Lovelace config-changed (or similar) event without custom-card-helpers. */
+function fireEvent(node, type, detail = {}) {
+  node.dispatchEvent(
+    new CustomEvent(type, {
+      detail,
+      bubbles: true,
+      composed: true,
+    })
+  );
+}
+
+/** Config keys that override auto-built entity IDs (cleared when climate entity changes). */
+const ENTITY_OVERRIDE_KEYS = [
+  "prefix",
+  "outside_air_temperature",
+  "exhaust_air_temperature",
+  "return_air_temperature",
+  "supply_air_temperature",
+  "intake_fan_speed_rpm",
+  "exhaust_fan_speed_rpm",
+  "return_air_level",
+  "supply_air_level",
+  "filter_status",
+  "bypass_valve_open",
+  "preheating_state",
+  "summer_mode",
+  "tempSensor1",
+  "tempSensor2",
+  "tempSensor3",
+  "tempSensor4",
+  "fan_speed_supply",
+  "fan_speed_exhaust",
+  "filterstatus",
+  "bypass_valve",
+  "preheat",
+];
+
+/**
+ * Visual card editor (Dashboard → Edit → ComfoAir Card).
+ * Uses HA's ha-form; auto-fills prefix when the climate entity changes.
+ */
+class ComfoAirCardEditor extends LitElement {
+  static get properties() {
+    return {
+      hass: {},
+      _config: {},
+      _detectedPrefix: { type: String },
+    };
+  }
+
+  setConfig(config) {
+    this._config = { ...config };
+    this._detectedPrefix = "";
+  }
+
+  _label = (schemaItem) => {
+    const labels = {
+      entity: "Climate entity (required)",
+      name: "Name",
+      prefix: "Entity prefix",
+      animation: "Animation",
+      animation_speed_source: "Animation speed source",
+      animation_speed: "Fixed animation speed (%)",
+      color_scale: "Color scale",
+      temp_min: "Fixed scale min (°C)",
+      temp_max: "Fixed scale max (°C)",
+      show_legend: "Show temperature legend",
+      outside_air_temperature: "Outside air temperature",
+      exhaust_air_temperature: "Exhaust air temperature",
+      return_air_temperature: "Extract / return air temperature",
+      supply_air_temperature: "Supply air temperature",
+      intake_fan_speed_rpm: "Intake fan speed (rpm)",
+      exhaust_fan_speed_rpm: "Exhaust fan speed (rpm)",
+      return_air_level: "Return air level (%)",
+      supply_air_level: "Supply air level (%)",
+      filter_status: "Filter status",
+      bypass_valve_open: "Bypass valve",
+      preheating_state: "Preheat",
+      summer_mode: "Summer mode",
+    };
+    return labels[schemaItem.name] || schemaItem.name;
+  };
+
+  _mainSchema() {
+    const cfg = this._config || {};
+    const schema = [
+      {
+        name: "entity",
+        required: true,
+        selector: { entity: { domain: "climate" } },
+      },
+      { name: "name", selector: { text: {} } },
+      {
+        name: "animation",
+        selector: {
+          select: {
+            mode: "dropdown",
+            options: [
+              { value: "static", label: "Static" },
+              { value: "animated", label: "Animated (flows + fans)" },
+            ],
+          },
+        },
+      },
+    ];
+
+    if (cfg.animation === "animated") {
+      schema.push({
+        name: "animation_speed_source",
+        selector: {
+          select: {
+            mode: "dropdown",
+            options: [
+              { value: "fixed", label: "Fixed speed (%)" },
+              { value: "level", label: "From supply/return air level" },
+            ],
+          },
+        },
+      });
+      if (cfg.animation_speed_source !== "level") {
+        schema.push({
+          name: "animation_speed",
+          selector: {
+            number: {
+              min: 10,
+              max: 200,
+              step: 10,
+              unit_of_measurement: "%",
+              mode: "slider",
+            },
+          },
+        });
+      }
+    }
+
+    schema.push({
+      name: "color_scale",
+      selector: {
+        select: {
+          mode: "dropdown",
+          options: [
+            { value: "fixed", label: "Fixed range (min/max)" },
+            { value: "auto", label: "Auto (stretch to current temps)" },
+          ],
+        },
+      },
+    });
+
+    if (cfg.color_scale !== "auto") {
+      schema.push(
+        {
+          name: "temp_min",
+          selector: {
+            number: {
+              min: -40,
+              max: 20,
+              step: 1,
+              unit_of_measurement: "°C",
+              mode: "box",
+            },
+          },
+        },
+        {
+          name: "temp_max",
+          selector: {
+            number: {
+              min: 0,
+              max: 60,
+              step: 1,
+              unit_of_measurement: "°C",
+              mode: "box",
+            },
+          },
+        }
+      );
+    }
+
+    schema.push({ name: "show_legend", selector: { boolean: {} } });
+    return schema;
+  }
+
+  _advancedSchema() {
+    return [
+      {
+        name: "prefix",
+        selector: { text: {} },
+      },
+      {
+        name: "outside_air_temperature",
+        selector: { entity: { domain: "sensor", device_class: "temperature" } },
+      },
+      {
+        name: "exhaust_air_temperature",
+        selector: { entity: { domain: "sensor", device_class: "temperature" } },
+      },
+      {
+        name: "return_air_temperature",
+        selector: { entity: { domain: "sensor", device_class: "temperature" } },
+      },
+      {
+        name: "supply_air_temperature",
+        selector: { entity: { domain: "sensor", device_class: "temperature" } },
+      },
+      {
+        name: "intake_fan_speed_rpm",
+        selector: { entity: { domain: "sensor" } },
+      },
+      {
+        name: "exhaust_fan_speed_rpm",
+        selector: { entity: { domain: "sensor" } },
+      },
+      {
+        name: "return_air_level",
+        selector: { entity: { domain: "sensor" } },
+      },
+      {
+        name: "supply_air_level",
+        selector: { entity: { domain: "sensor" } },
+      },
+      {
+        name: "filter_status",
+        selector: { entity: { domain: ["sensor", "binary_sensor"] } },
+      },
+      {
+        name: "bypass_valve_open",
+        selector: { entity: { domain: "binary_sensor" } },
+      },
+      {
+        name: "preheating_state",
+        selector: { entity: { domain: "binary_sensor" } },
+      },
+      {
+        name: "summer_mode",
+        selector: { entity: { domain: "binary_sensor" } },
+      },
+    ];
+  }
+
+  render() {
+    if (!this.hass || !this._config) {
+      return html``;
+    }
+
+    const hintPrefix =
+      this._detectedPrefix ||
+      resolvePrefix(this.hass, this._config.entity, this._config.prefix);
+
+    return html`
+      <div class="editor">
+        <ha-form
+          .hass=${this.hass}
+          .data=${this._config}
+          .schema=${this._mainSchema()}
+          .computeLabel=${this._label}
+          @value-changed=${this._mainChanged}
+        ></ha-form>
+        ${this._config.entity
+          ? html`<div class="hint">
+              Sensor prefix:
+              <code>${hintPrefix}</code>
+              ${this._config.prefix
+                ? "(from config)"
+                : "(auto-detected — override under Advanced)"}
+            </div>`
+          : ""}
+        <ha-expansion-panel outlined>
+          <span slot="header">Advanced / entity overrides</span>
+          <ha-form
+            .hass=${this.hass}
+            .data=${this._config}
+            .schema=${this._advancedSchema()}
+            .computeLabel=${this._label}
+            @value-changed=${this._advancedChanged}
+          ></ha-form>
+        </ha-expansion-panel>
+      </div>
+    `;
+  }
+
+  _mainChanged(ev) {
+    ev.stopPropagation();
+    const value = ev.detail?.value || {};
+    const newEntity = value.entity || "";
+    const entityChanged = !!newEntity && newEntity !== this._config.entity;
+
+    let next = { ...this._config, ...value };
+
+    if (entityChanged) {
+      // Drop previous device's overrides, then fill a fresh auto prefix
+      for (const key of ENTITY_OVERRIDE_KEYS) {
+        delete next[key];
+      }
+      const detected = resolvePrefix(this.hass, newEntity, undefined);
+      next.entity = newEntity;
+      next.prefix = detected;
+      this._detectedPrefix = detected;
+    }
+
+    this._emit(next);
+  }
+
+  _advancedChanged(ev) {
+    ev.stopPropagation();
+    const value = ev.detail?.value || {};
+    // Empty string prefix → treat as cleared (re-enable auto-detect)
+    if (Object.prototype.hasOwnProperty.call(value, "prefix") && value.prefix === "") {
+      const next = { ...this._config, ...value };
+      delete next.prefix;
+      this._detectedPrefix = resolvePrefix(this.hass, next.entity, undefined);
+      this._emit(next);
+      return;
+    }
+    this._emit({ ...this._config, ...value });
+  }
+
+  _emit(config) {
+    this._config = config;
+    fireEvent(this, "config-changed", { config });
+  }
+
+  static get styles() {
+    return css`
+      .editor {
+        padding: 4px 0;
+      }
+      .hint {
+        color: var(--secondary-text-color);
+        padding: 6px 0 10px;
+        font-size: 0.9em;
+      }
+      .hint code {
+        font-size: 0.95em;
+        color: var(--primary-text-color);
+      }
+      ha-form {
+        display: block;
+      }
+      ha-expansion-panel {
+        margin-top: 8px;
+      }
+    `;
+  }
+}
+
 customElements.define("comfoair-card", ComfoAirCard);
+customElements.define("comfoair-card-editor", ComfoAirCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({

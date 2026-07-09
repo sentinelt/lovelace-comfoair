@@ -16,6 +16,7 @@ Visualization inspired by [TimWeyand/lovelace-comfoair](https://github.com/TimWe
 - Optional temperature **legend**
 - Click a temperature / rpm / % value to open Home Assistant more-info history
 - **Auto-detected entity prefix** from the climate entity (device siblings / object_id heuristics); optional `prefix` override
+- **Visual card editor** in the dashboard UI (climate picker, animation/colors, advanced entity overrides)
 - Missing entities are listed instead of throwing in the browser console
 
 
@@ -53,6 +54,15 @@ resources:
    ```
 
 ## Configuration
+
+### UI editor
+
+1. Edit dashboard → **Add card** → search for **ComfoAir Card** (or paste the YAML below).
+2. Pick the **climate** entity — the sensor prefix is filled automatically.
+3. Adjust animation / color scale as needed.
+4. Open **Advanced / entity overrides** only if individual sensors need remapping.
+
+### YAML
 
 Minimal example — only the climate entity is required; the sensor **prefix is auto-detected**:
 

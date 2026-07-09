@@ -24,6 +24,7 @@ import { svg } from "https://unpkg.com/lit-html@1.4.1/lit-html.js?module";
  *   temp_max: 40                                        # red at/above this
  *   show_legend: false
  *   enable_test_mode: false                             # show service/test dialog button
+ *   disable_auto_fan: false                             # hide Auto fan button (cannot set Auto)
  *
  * Entity IDs default to {domain}.{prefix}_{suffix}. When prefix is omitted it
  * is derived from the climate entity (device siblings or object_id heuristics).
@@ -166,6 +167,7 @@ const FLOW_BASE = 3.0;
 const SPIN_BASE = 1.6;
 
 const FAN_BUTTONS = [
+  { mode: "auto", icon: "mdi:fan-auto" },
   { mode: "off", icon: "mdi:fan-off" },
   { mode: "low", icon: "mdi:fan-speed-1" },
   { mode: "medium", icon: "mdi:fan-speed-2" },
@@ -173,11 +175,11 @@ const FAN_BUTTONS = [
 ];
 
 const FAN_MODE_LABELS = {
+  auto: "Auto",
   off: "Off",
   low: "Low",
   medium: "Medium",
   high: "High",
-  auto: "Auto",
 };
 
 // OKLCH heatmap stops: cold (blue) → hot (dark red)
@@ -384,6 +386,20 @@ class ComfoAirCard extends LitElement {
   /** Card-level flag (default false). ESPHome must also enable test mode. */
   _testModeEnabled() {
     return this.config?.enable_test_mode === true;
+  }
+
+  /**
+   * Whether the Auto fan button is shown for setting Auto mode.
+   * Default true; set disable_auto_fan: true to hide (status still shows Auto if active).
+   */
+  _allowAutoFan() {
+    return this.config?.disable_auto_fan !== true;
+  }
+
+  /** Fan buttons for the hub row (optionally without Auto). */
+  _fanButtons() {
+    if (this._allowAutoFan()) return FAN_BUTTONS;
+    return FAN_BUTTONS.filter((b) => b.mode !== "auto");
   }
 
   static async getConfigElement() {
@@ -902,8 +918,8 @@ class ComfoAirCard extends LitElement {
           </div>
           <button @click=${() => this._stepTemp(1)} aria-label="Warmer">+</button>
         </div>
-        <div class="fanrow">
-          ${FAN_BUTTONS.map(
+        <div class="fanrow ${this._allowAutoFan() ? "with-auto" : ""}">
+          ${this._fanButtons().map(
             (b) => html`<button
               class=${isFanModeActive(fanMode, b.mode) ? "on" : ""}
               title=${FAN_MODE_LABELS[b.mode] || b.mode}
@@ -1465,6 +1481,10 @@ class ComfoAirCard extends LitElement {
         display: flex;
         align-items: center;
         justify-content: center;
+        padding: 0;
+      }
+      .fanrow.with-auto button {
+        width: 28px;
       }
       .fanrow button:hover {
         color: var(--primary-text-color);
@@ -1477,12 +1497,18 @@ class ComfoAirCard extends LitElement {
       .fanrow ha-icon {
         --mdc-icon-size: 18px;
       }
+      .fanrow.with-auto ha-icon {
+        --mdc-icon-size: 16px;
+      }
 
       .lanes {
         display: flex;
         flex-direction: column;
         gap: 3px;
         --hub-w: 188px;
+      }
+      .lanes:has(.fanrow.with-auto) {
+        --hub-w: 210px;
       }
       .trow {
         display: grid;
@@ -1928,6 +1954,7 @@ class ComfoAirCardEditor extends LitElement {
       temp_max: "Fixed scale max (°C)",
       show_legend: "Show temperature legend",
       enable_test_mode: "Enable test mode UI",
+      disable_auto_fan: "Disable Auto fan button",
       outside_air_temperature: "Outside air temperature",
       exhaust_air_temperature: "Exhaust air temperature",
       return_air_temperature: "Extract / return air temperature",
@@ -2043,6 +2070,7 @@ class ComfoAirCardEditor extends LitElement {
 
     schema.push({ name: "show_legend", selector: { boolean: {} } });
     schema.push({ name: "enable_test_mode", selector: { boolean: {} } });
+    schema.push({ name: "disable_auto_fan", selector: { boolean: {} } });
     return schema;
   }
 

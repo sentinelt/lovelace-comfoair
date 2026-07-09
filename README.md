@@ -10,7 +10,7 @@ Visualization inspired by [TimWeyand/lovelace-comfoair](https://github.com/TimWe
 
 - Crossed airflows (outside / extract / exhaust / supply) with a **fixed temperature color scale** (OKLCH: dark blue ≤ −20 °C → red ≥ 40 °C)
 - **Heat recovery %** computed from the four temperatures (hidden when bypass is open)
-- Setpoint (− / +) and fan modes (Off / Low / Medium / High)
+- Setpoint (− / +) and fan modes (**Auto** / Off / Low / Medium / High; Auto can be hidden)
 - Status row: Fan, Filter, **Error**, Bypass, Preheat, Summer/Winter
 - **Filter / error reset**: click an active Filter or Error chip to confirm and press the matching HA button
 - Optional **service / test mode** dialog (`enable_test_mode`, default off)
@@ -95,6 +95,7 @@ How prefix auto-detection works:
 | `temp_max` | no | `40` | Upper bound for fixed color scale (°C); at or above → red |
 | `show_legend` | no | `false` | Show temperature color legend |
 | `enable_test_mode` | no | `false` | Show header button that opens the service/test dialog |
+| `disable_auto_fan` | no | `false` | Hide the Auto fan button so Auto cannot be selected from the card (status still shows Auto if the unit is already in Auto) |
 
 ### Entity IDs
 

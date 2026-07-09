@@ -10,7 +10,7 @@ Visualization inspired by [TimWeyand/lovelace-comfoair](https://github.com/TimWe
 
 - Crossed airflows (outside / extract / exhaust / supply) with a **fixed temperature color scale** (OKLCH: dark blue ≤ −20 °C → red ≥ 40 °C)
 - **Heat recovery %** computed from the four temperatures (hidden when bypass is open)
-- Setpoint (− / +) and fan modes (Off / Low / Medium / High)
+- Setpoint (− / +) and fan modes (**Auto** / Off / Low / Medium / High; Auto can be hidden)
 - Status row: Fan, Filter, Bypass, Preheat, Summer/Winter
 - Optional **animated** airflows and spinning fans
 - Optional temperature **legend**
@@ -92,6 +92,7 @@ How prefix auto-detection works:
 | `temp_min` | no | `-20` | Lower bound for fixed color scale (°C); at or below → dark blue |
 | `temp_max` | no | `40` | Upper bound for fixed color scale (°C); at or above → red |
 | `show_legend` | no | `false` | Show temperature color legend |
+| `disable_auto_fan` | no | `false` | Hide the Auto fan button so Auto cannot be selected from the card (status still shows Auto if the unit is already in Auto) |
 
 ### Entity IDs
 

@@ -28,6 +28,9 @@ import { svg } from "https://unpkg.com/lit-html@1.4.1/lit-html.js?module";
  * Entity IDs default to {domain}.{prefix}_{suffix}. When prefix is omitted it
  * is derived from the climate entity (device siblings or object_id heuristics).
  * Override any key with a full entity_id (or TimWeyand-compatible aliases).
+ *
+ * Optional entities (defaults from prefix):
+ *   error_status, filter_reset, error_reset — error chip + filter/error resets
  */
 
 /** Sensor suffixes used to probe which prefix matches live HA entities. */
@@ -88,9 +91,10 @@ function prefixFromDevice(hass, climateEntityId) {
         return objectId.slice(0, -(suffix.length + 1));
       }
     }
-    // filter / bypass / preheat / summer (binary or sensor)
+    // filter / error / bypass / preheat / summer (binary or sensor)
     for (const suffix of [
       "filter_status",
+      "error_status",
       "bypass_valve_open",
       "preheating_state",
       "summer_mode",
@@ -257,7 +261,111 @@ function isFanModeActive(fanMode, mode) {
   return !!fanMode && fanMode.toLowerCase() === mode.toLowerCase();
 }
 
-/** Status chip data (English labels). */
+/** True when error_status text is a live fault list (not empty / None / OK). */
+function hasActiveError(raw) {
+  if (raw == null || raw === "" || raw === "—" || raw === undefined) return false;
+  const s = String(raw).trim();
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  return lower !== "none" && lower !== "ok" && lower !== "unknown" && lower !== "unavailable";
+}
+
+/**
+ * Human-readable ComfoAir classic fault codes (UART 0xDA A/E/EA families).
+ *
+ * Wording from Zehnder installer manuals §2.10.1 “Malfunction alerts”:
+ *   - ComfoAir 350 Luxe (most complete table: A0–A11, E1–E4, EA1–EA2)
+ *   - ComfoAir 550 / ComfoAir Standard 300–375 (cross-check; some options N/A)
+ *
+ * Codes that appear in the protocol bit maps but not in those manuals
+ * (A9, A12–A15, E5–E8, EA3–EA8) fall back to the raw code only.
+ */
+const FAULT_MESSAGES = {
+  A0: "NTC sensor TGe is defective (geothermal heat exchanger temperature)",
+  A1: "NTC sensor T1 is defective (outside air temperature)",
+  A2: "NTC sensor T2 is defective (supply air temperature)",
+  A3: "NTC sensor T3 is defective (return air temperature)",
+  A4: "NTC sensor T4 is defective (exhaust air temperature)",
+  A5: "Malfunction in the bypass motor",
+  A6: "Malfunction in the preheater element motor",
+  A7: "Preheater element does not heat sufficiently",
+  A8: "Preheater element becomes too hot",
+  A10: "NTC sensor Tch is defective (extractor hood temperature)",
+  A11: "NTC sensor Tah is defective (afterheater temperature)",
+  E1: "Exhaust fan not rotating",
+  E2: "Supply fan not rotating",
+  E3: "Extractor hood temperature too high",
+  E4: "ComfoAir has been switched off by external contact",
+  EA1: "Enthalpy sensor measures excessive relative humidity (RH)",
+  EA2: "No communication between the enthalpy sensor and the ComfoAir",
+};
+
+/** Compact chip labels (same manual meanings, shorter for the status row). */
+const FAULT_SHORT = {
+  A0: "Geothermal sensor (TGe)",
+  A1: "Outside air sensor (T1)",
+  A2: "Supply air sensor (T2)",
+  A3: "Return air sensor (T3)",
+  A4: "Exhaust air sensor (T4)",
+  A5: "Bypass motor",
+  A6: "Preheater motor",
+  A7: "Preheater not heating",
+  A8: "Preheater overheating",
+  A10: "Hood sensor (Tch)",
+  A11: "Afterheater sensor (Tah)",
+  E1: "Exhaust fan stopped",
+  E2: "Supply fan stopped",
+  E3: "Hood temperature high",
+  E4: "Off by external contact",
+  EA1: "Enthalpy humidity high",
+  EA2: "Enthalpy sensor offline",
+};
+
+/** Split esphome error_status text ("A1, E2, EA1") into normalised codes. */
+function parseErrorCodes(raw) {
+  return String(raw)
+    .split(/[,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => s.toUpperCase());
+}
+
+/** One code → full manual-style line for tooltips. */
+function describeFault(code) {
+  const key = String(code || "")
+    .trim()
+    .toUpperCase();
+  if (!key) return "";
+  const msg = FAULT_MESSAGES[key];
+  return msg ? `${key}: ${msg}` : key;
+}
+
+/**
+ * Format error_status for the Error chip.
+ * @returns {{ sub: string, title: string }}
+ */
+function formatErrorChip(raw) {
+  if (!hasActiveError(raw)) {
+    return { sub: "None", title: "No active errors" };
+  }
+  const codes = parseErrorCodes(raw);
+  if (!codes.length) {
+    return { sub: "None", title: "No active errors" };
+  }
+  const sub = codes
+    .map((c) => {
+      const short = FAULT_SHORT[c];
+      return short ? `${c} · ${short}` : c;
+    })
+    .join("; ");
+  const detail = codes.map(describeFault).join("\n");
+  return {
+    sub,
+    title: `${detail}\n\nClick to reset errors`,
+  };
+}
+
+/** Status chip data (English labels). Optional action: filter_reset | error_reset. */
 function statusChip(kind, raw, fanMode) {
   const on = raw === "on" || raw === "Full" || raw === "full";
   switch (kind) {
@@ -278,7 +386,22 @@ function statusChip(kind, raw, fanMode) {
         sub: on ? "Replace" : "OK",
         active: on,
         color: "#f5a623",
+        action: on ? "filter_reset" : null,
+        title: on ? "Click to reset filter timer" : "Filter status",
       };
+    case "error": {
+      const active = hasActiveError(raw);
+      const { sub, title } = formatErrorChip(raw);
+      return {
+        icon: active ? "mdi:alert-circle" : "mdi:check-circle-outline",
+        label: "Error",
+        sub,
+        active,
+        color: "#e53935",
+        action: active ? "error_reset" : null,
+        title,
+      };
+    }
     case "bypass":
       return {
         icon: "mdi:valve",
@@ -456,6 +579,21 @@ class ComfoAirCard extends LitElement {
         "filter_status",
         "filterstatus"
       ),
+      error: this._entityId(
+        "sensor",
+        "error_status",
+        "error_status"
+      ),
+      filterReset: this._entityId(
+        "button",
+        "filter_reset",
+        "filter_reset"
+      ),
+      errorReset: this._entityId(
+        "button",
+        "error_reset",
+        "error_reset"
+      ),
       bypass: this._entityId(
         "binary_sensor",
         "bypass_valve_open",
@@ -541,6 +679,42 @@ class ComfoAirCard extends LitElement {
       entity_id: this.config.entity,
       fan_mode: mode,
     });
+  }
+
+  _pressButton(entityId) {
+    if (!this.hass || !entityId) return;
+    if (!this.hass.states[entityId]) return;
+    this.hass.callService("button", "press", { entity_id: entityId });
+  }
+
+  /**
+   * Status chip click: active filter/error chips confirm + press reset buttons;
+   * otherwise open more-info on the related entity when present.
+   */
+  _onChipClick(chip, ids) {
+    if (chip.action === "filter_reset") {
+      if (
+        this.hass?.states?.[ids.filterReset] &&
+        window.confirm("Reset the filter timer on the ventilation unit?")
+      ) {
+        this._pressButton(ids.filterReset);
+      } else if (!this.hass?.states?.[ids.filterReset] && ids.filter) {
+        this._moreInfo(ids.filter);
+      }
+      return;
+    }
+    if (chip.action === "error_reset") {
+      if (
+        this.hass?.states?.[ids.errorReset] &&
+        window.confirm("Reset active fault codes on the ventilation unit?")
+      ) {
+        this._pressButton(ids.errorReset);
+      } else if (!this.hass?.states?.[ids.errorReset] && ids.error) {
+        this._moreInfo(ids.error);
+      }
+      return;
+    }
+    if (chip.entityId) this._moreInfo(chip.entityId);
   }
 
   _stepTemp(direction) {
@@ -646,9 +820,22 @@ class ComfoAirCard extends LitElement {
     const recov =
       bypassState === "on" ? null : recoveryPct(t1, t3, t4);
 
+    const filterChip = statusChip(
+      "filter",
+      this._stateValue(ids.filter, undefined)
+    );
+    filterChip.entityId = ids.filter;
+
+    const errorChip = statusChip(
+      "error",
+      this._stateValue(ids.error, undefined)
+    );
+    errorChip.entityId = ids.error;
+
     const chips = [
       statusChip("fan", undefined, fanMode),
-      statusChip("filter", this._stateValue(ids.filter, undefined)),
+      filterChip,
+      errorChip,
       statusChip("bypass", bypassState),
       statusChip("preheat", this._stateValue(ids.preheat, undefined)),
       statusChip("season", this._stateValue(ids.summer, undefined)),
@@ -850,12 +1037,18 @@ class ComfoAirCard extends LitElement {
         <div class="status">
           ${chips.map(
             (c) => html`<div
-              class="chip ${c.active ? "on" : ""}"
+              class="chip ${c.active ? "on" : ""} ${c.action || c.entityId
+                ? "clickable"
+                : ""}"
               style="--c:${c.color}"
+              title=${c.title || c.sub || c.label}
+              @click=${() => this._onChipClick(c, ids)}
             >
               <ha-icon icon=${c.icon}></ha-icon>
               <span class="nm">${c.label}</span>
-              ${c.sub ? html`<span class="vs">${c.sub}</span>` : ""}
+              ${c.sub
+                ? html`<span class="vs" title=${c.title || c.sub}>${c.sub}</span>`
+                : ""}
             </div>`
           )}
         </div>
@@ -1223,7 +1416,7 @@ class ComfoAirCard extends LitElement {
 
       .status {
         display: grid;
-        grid-template-columns: repeat(5, 1fr);
+        grid-template-columns: repeat(6, 1fr);
         gap: 6px;
         margin-top: 12px;
         padding-top: 12px;
@@ -1238,6 +1431,13 @@ class ComfoAirCard extends LitElement {
         border-radius: 11px;
         color: var(--secondary-text-color);
         transition: 0.25s;
+        min-width: 0;
+      }
+      .chip.clickable {
+        cursor: pointer;
+      }
+      .chip.clickable:hover {
+        background: color-mix(in srgb, var(--c, var(--primary-color)) 8%, transparent);
       }
       .chip ha-icon {
         --mdc-icon-size: 23px;
@@ -1253,6 +1453,11 @@ class ComfoAirCard extends LitElement {
         text-transform: uppercase;
         color: var(--secondary-text-color);
         opacity: 0.65;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding: 0 2px;
       }
       .chip.on {
         color: var(--c);
@@ -1261,9 +1466,16 @@ class ComfoAirCard extends LitElement {
       .chip.on .vs {
         color: var(--c);
         opacity: 0.9;
+        text-transform: none;
+        letter-spacing: 0;
       }
       .chip.on ha-icon {
         filter: drop-shadow(0 0 7px var(--c));
+      }
+      @media (max-width: 420px) {
+        .status {
+          grid-template-columns: repeat(3, 1fr);
+        }
       }
     `;
   }
@@ -1292,6 +1504,9 @@ const ENTITY_OVERRIDE_KEYS = [
   "return_air_level",
   "supply_air_level",
   "filter_status",
+  "error_status",
+  "filter_reset",
+  "error_reset",
   "bypass_valve_open",
   "preheating_state",
   "summer_mode",
@@ -1346,6 +1561,9 @@ class ComfoAirCardEditor extends LitElement {
       return_air_level: "Return air level (%)",
       supply_air_level: "Supply air level (%)",
       filter_status: "Filter status",
+      error_status: "Error status",
+      filter_reset: "Filter reset button",
+      error_reset: "Error reset button",
       bypass_valve_open: "Bypass valve",
       preheating_state: "Preheat",
       summer_mode: "Summer mode",
@@ -1493,6 +1711,18 @@ class ComfoAirCardEditor extends LitElement {
       {
         name: "filter_status",
         selector: { entity: { domain: ["sensor", "binary_sensor"] } },
+      },
+      {
+        name: "error_status",
+        selector: { entity: { domain: "sensor" } },
+      },
+      {
+        name: "filter_reset",
+        selector: { entity: { domain: "button" } },
+      },
+      {
+        name: "error_reset",
+        selector: { entity: { domain: "button" } },
       },
       {
         name: "bypass_valve_open",

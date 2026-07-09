@@ -11,7 +11,8 @@ Visualization inspired by [TimWeyand/lovelace-comfoair](https://github.com/TimWe
 - Crossed airflows (outside / extract / exhaust / supply) with a **fixed temperature color scale** (OKLCH: dark blue ≤ −20 °C → red ≥ 40 °C)
 - **Heat recovery %** computed from the four temperatures (hidden when bypass is open)
 - Setpoint (− / +) and fan modes (Off / Low / Medium / High)
-- Status row: Fan, Filter, Bypass, Preheat, Summer/Winter
+- Status row: Fan, Filter, **Error**, Bypass, Preheat, Summer/Winter
+- **Filter / error reset**: click an active Filter or Error chip to confirm and press the matching HA button
 - Optional **animated** airflows and spinning fans
 - Optional temperature **legend**
 - Click a temperature / rpm / % value to open Home Assistant more-info history
@@ -108,11 +109,23 @@ With `prefix: esphome_comfoair200` the card expects:
 | Return air level | `sensor.{prefix}_return_air_level` |
 | Supply air level | `sensor.{prefix}_supply_air_level` |
 | Filter | `sensor.{prefix}_filter_status` |
+| Errors | `sensor.{prefix}_error_status` |
+| Filter reset | `button.{prefix}_filter_reset` |
+| Error reset | `button.{prefix}_error_reset` |
 | Bypass | `binary_sensor.{prefix}_bypass_valve_open` |
 | Preheat | `binary_sensor.{prefix}_preheating_state` |
 | Summer mode | `binary_sensor.{prefix}_summer_mode` |
 
 Override any of those with a full entity ID using the same key name, e.g. `outside_air_temperature: sensor.my_temp`. TimWeyand-style aliases (`tempSensor1`…`tempSensor4`, `fan_speed_supply`, `filterstatus`, `bypass_valve`, `preheat`) are also accepted.
+
+### Status chips and resets
+
+The status row shows fan, filter, **error**, bypass, preheat, and season.
+
+- **Filter** chip is active when status is `Full`. Click it to confirm and press `button.{prefix}_filter_reset` (resets the unit’s filter timer).
+- **Error** chip shows active fault codes from `error_status` (e.g. `A1, E2`), or `None` when clear. Click when active to confirm and press `button.{prefix}_error_reset`.
+
+Requires esphome-comfoair with `error_status`, `filter_reset`, and `error_reset` configured under `comfoair:`.
 
 ### Example with options
 

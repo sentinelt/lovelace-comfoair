@@ -27,6 +27,9 @@ import { svg } from "https://unpkg.com/lit-html@1.4.1/lit-html.js?module";
  * Entity IDs default to {domain}.{prefix}_{suffix}. When prefix is omitted it
  * is derived from the climate entity (device siblings or object_id heuristics).
  * Override any key with a full entity_id (or TimWeyand-compatible aliases).
+ *
+ * Optional entities (defaults from prefix):
+ *   error_status, filter_reset, error_reset — error chip + filter/error resets
  */
 
 /** Sensor suffixes used to probe which prefix matches live HA entities. */
@@ -87,9 +90,10 @@ function prefixFromDevice(hass, climateEntityId) {
         return objectId.slice(0, -(suffix.length + 1));
       }
     }
-    // filter / bypass / preheat / summer (binary or sensor)
+    // filter / error / bypass / preheat / summer (binary or sensor)
     for (const suffix of [
       "filter_status",
+      "error_status",
       "bypass_valve_open",
       "preheating_state",
       "summer_mode",
@@ -255,7 +259,16 @@ function isFanModeActive(fanMode, mode) {
   return !!fanMode && fanMode.toLowerCase() === mode.toLowerCase();
 }
 
-/** Status chip data (English labels). */
+/** True when error_status text is a live fault list (not empty / None / OK). */
+function hasActiveError(raw) {
+  if (raw == null || raw === "" || raw === "—" || raw === undefined) return false;
+  const s = String(raw).trim();
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  return lower !== "none" && lower !== "ok" && lower !== "unknown" && lower !== "unavailable";
+}
+
+/** Status chip data (English labels). Optional action: filter_reset | error_reset. */
 function statusChip(kind, raw, fanMode) {
   const on = raw === "on" || raw === "Full" || raw === "full";
   switch (kind) {
@@ -276,7 +289,22 @@ function statusChip(kind, raw, fanMode) {
         sub: on ? "Replace" : "OK",
         active: on,
         color: "#f5a623",
+        action: on ? "filter_reset" : null,
+        title: on ? "Click to reset filter timer" : "Filter status",
       };
+    case "error": {
+      const active = hasActiveError(raw);
+      const sub = active ? String(raw) : "None";
+      return {
+        icon: active ? "mdi:alert-circle" : "mdi:check-circle-outline",
+        label: "Error",
+        sub,
+        active,
+        color: "#e53935",
+        action: active ? "error_reset" : null,
+        title: active ? `Click to reset errors (${sub})` : "No active errors",
+      };
+    }
     case "bypass":
       return {
         icon: "mdi:valve",
@@ -440,6 +468,21 @@ class ComfoAirCard extends LitElement {
         "filter_status",
         "filterstatus"
       ),
+      error: this._entityId(
+        "sensor",
+        "error_status",
+        "error_status"
+      ),
+      filterReset: this._entityId(
+        "button",
+        "filter_reset",
+        "filter_reset"
+      ),
+      errorReset: this._entityId(
+        "button",
+        "error_reset",
+        "error_reset"
+      ),
       bypass: this._entityId(
         "binary_sensor",
         "bypass_valve_open",
@@ -525,6 +568,42 @@ class ComfoAirCard extends LitElement {
       entity_id: this.config.entity,
       fan_mode: mode,
     });
+  }
+
+  _pressButton(entityId) {
+    if (!this.hass || !entityId) return;
+    if (!this.hass.states[entityId]) return;
+    this.hass.callService("button", "press", { entity_id: entityId });
+  }
+
+  /**
+   * Status chip click: active filter/error chips confirm + press reset buttons;
+   * otherwise open more-info on the related entity when present.
+   */
+  _onChipClick(chip, ids) {
+    if (chip.action === "filter_reset") {
+      if (
+        this.hass?.states?.[ids.filterReset] &&
+        window.confirm("Reset the filter timer on the ventilation unit?")
+      ) {
+        this._pressButton(ids.filterReset);
+      } else if (!this.hass?.states?.[ids.filterReset] && ids.filter) {
+        this._moreInfo(ids.filter);
+      }
+      return;
+    }
+    if (chip.action === "error_reset") {
+      if (
+        this.hass?.states?.[ids.errorReset] &&
+        window.confirm("Reset active fault codes on the ventilation unit?")
+      ) {
+        this._pressButton(ids.errorReset);
+      } else if (!this.hass?.states?.[ids.errorReset] && ids.error) {
+        this._moreInfo(ids.error);
+      }
+      return;
+    }
+    if (chip.entityId) this._moreInfo(chip.entityId);
   }
 
   _stepTemp(direction) {
@@ -630,9 +709,22 @@ class ComfoAirCard extends LitElement {
     const recov =
       bypassState === "on" ? null : recoveryPct(t1, t3, t4);
 
+    const filterChip = statusChip(
+      "filter",
+      this._stateValue(ids.filter, undefined)
+    );
+    filterChip.entityId = ids.filter;
+
+    const errorChip = statusChip(
+      "error",
+      this._stateValue(ids.error, undefined)
+    );
+    errorChip.entityId = ids.error;
+
     const chips = [
       statusChip("fan", undefined, fanMode),
-      statusChip("filter", this._stateValue(ids.filter, undefined)),
+      filterChip,
+      errorChip,
       statusChip("bypass", bypassState),
       statusChip("preheat", this._stateValue(ids.preheat, undefined)),
       statusChip("season", this._stateValue(ids.summer, undefined)),
@@ -828,12 +920,18 @@ class ComfoAirCard extends LitElement {
         <div class="status">
           ${chips.map(
             (c) => html`<div
-              class="chip ${c.active ? "on" : ""}"
+              class="chip ${c.active ? "on" : ""} ${c.action || c.entityId
+                ? "clickable"
+                : ""}"
               style="--c:${c.color}"
+              title=${c.title || c.sub || c.label}
+              @click=${() => this._onChipClick(c, ids)}
             >
               <ha-icon icon=${c.icon}></ha-icon>
               <span class="nm">${c.label}</span>
-              ${c.sub ? html`<span class="vs">${c.sub}</span>` : ""}
+              ${c.sub
+                ? html`<span class="vs" title=${c.sub}>${c.sub}</span>`
+                : ""}
             </div>`
           )}
         </div>
@@ -1170,7 +1268,7 @@ class ComfoAirCard extends LitElement {
 
       .status {
         display: grid;
-        grid-template-columns: repeat(5, 1fr);
+        grid-template-columns: repeat(6, 1fr);
         gap: 6px;
         margin-top: 12px;
         padding-top: 12px;
@@ -1185,6 +1283,13 @@ class ComfoAirCard extends LitElement {
         border-radius: 11px;
         color: var(--secondary-text-color);
         transition: 0.25s;
+        min-width: 0;
+      }
+      .chip.clickable {
+        cursor: pointer;
+      }
+      .chip.clickable:hover {
+        background: color-mix(in srgb, var(--c, var(--primary-color)) 8%, transparent);
       }
       .chip ha-icon {
         --mdc-icon-size: 23px;
@@ -1200,6 +1305,11 @@ class ComfoAirCard extends LitElement {
         text-transform: uppercase;
         color: var(--secondary-text-color);
         opacity: 0.65;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding: 0 2px;
       }
       .chip.on {
         color: var(--c);
@@ -1208,9 +1318,16 @@ class ComfoAirCard extends LitElement {
       .chip.on .vs {
         color: var(--c);
         opacity: 0.9;
+        text-transform: none;
+        letter-spacing: 0;
       }
       .chip.on ha-icon {
         filter: drop-shadow(0 0 7px var(--c));
+      }
+      @media (max-width: 420px) {
+        .status {
+          grid-template-columns: repeat(3, 1fr);
+        }
       }
     `;
   }
@@ -1239,6 +1356,9 @@ const ENTITY_OVERRIDE_KEYS = [
   "return_air_level",
   "supply_air_level",
   "filter_status",
+  "error_status",
+  "filter_reset",
+  "error_reset",
   "bypass_valve_open",
   "preheating_state",
   "summer_mode",
@@ -1292,6 +1412,9 @@ class ComfoAirCardEditor extends LitElement {
       return_air_level: "Return air level (%)",
       supply_air_level: "Supply air level (%)",
       filter_status: "Filter status",
+      error_status: "Error status",
+      filter_reset: "Filter reset button",
+      error_reset: "Error reset button",
       bypass_valve_open: "Bypass valve",
       preheating_state: "Preheat",
       summer_mode: "Summer mode",
@@ -1438,6 +1561,18 @@ class ComfoAirCardEditor extends LitElement {
       {
         name: "filter_status",
         selector: { entity: { domain: ["sensor", "binary_sensor"] } },
+      },
+      {
+        name: "error_status",
+        selector: { entity: { domain: "sensor" } },
+      },
+      {
+        name: "filter_reset",
+        selector: { entity: { domain: "button" } },
+      },
+      {
+        name: "error_reset",
+        selector: { entity: { domain: "button" } },
       },
       {
         name: "bypass_valve_open",

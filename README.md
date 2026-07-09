@@ -1,62 +1,115 @@
-# Homeassistant Lovelace Comfoair card
+# Home Assistant Lovelace ComfoAir Card
 
-Use https://github.com/wichers/esphome-comfoair to connect your ComfoAir to Homeassistant and then use this lovelace card to visualize your data!
+Use [esphome-comfoair](https://github.com/wichers/esphome-comfoair) to connect your ComfoAir to Home Assistant, then use this Lovelace card to visualize and control it.
 
-![Image](https://raw.githubusercontent.com/wichers/lovelace-comfoair/master/result.png)
+Visualization inspired by [TimWeyand/lovelace-comfoair](https://github.com/TimWeyand/lovelace-comfoair) (crossed airflows, temperature color scale, setpoint/fan controls, status chips) — English UI, entity IDs for **esphome-comfoair**.
 
 [![Install with HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=wichers&repository=lovelace-comfoair)
 
-# Manual installation
+## Features
 
-* Clone this repo into your `www` folder inside your configuration. So it will be: `config_folder/www/lovelace-comfoair`.
-* Edit your lovelace-ui.yaml or use the flat configuration mode in lovelace and add to the top:
-```
+- Crossed airflows (outside / extract / exhaust / supply) with a **temperature color scale** (OKLCH, blue → dark red)
+- **Heat recovery %** computed from the four temperatures (hidden when bypass is open)
+- Setpoint (− / +) and fan modes (Off / Low / Medium / High)
+- Status row: Fan, Filter, Bypass, Preheat, Summer/Winter
+- Optional **animated** airflows and spinning fans
+- Optional temperature **legend**
+- Click a temperature / rpm / % value to open Home Assistant more-info history
+- Configurable **entity prefix** for ESPHome device names (no hardcoded `comfoair_*` IDs)
+- Missing entities are listed instead of throwing in the browser console
+
+
+## Gallery
+
+Screenshots from the TimWeyand visualization this card adopts (light/dark, static/animated):
+
+| | Static | Animated |
+|---|---|---|
+| **Light** | ![Static light](static-light.png) | ![Animated light](animated-light.gif) |
+| **Dark** | ![Static dark](static-dark.png) | ![Animated dark](animated-dark.gif) |
+
+## Installation
+
+### Manual
+
+* Clone this repo into your `www` folder: `config/www/lovelace-comfoair`.
+* Register the resource:
+```yaml
 resources:
   - type: module
     url: /local/lovelace-comfoair/comfoair-card.js
 ```
-* Add a card with `type: 'custom:comfoair-card'`, your climate entity, and the sensor prefix that matches your ESPHome device name (hyphens become underscores):
-```yaml
-type: custom:comfoair-card
-entity: climate.esphome_comfoair200_comfoair_200   # your climate entity
-prefix: esphome_comfoair200                        # ESPHome device name with _ instead of -
-```
-  The card builds sensor IDs as `sensor.{prefix}_outside_air_temperature`, etc.
-  Default `prefix` is `comfoair` (legacy). If entities are missing, the card lists the IDs it expected instead of crashing.
-* Restart home assistant (or hard-refresh the browser: Ctrl+F5) after updating the JS
-* ???
-* Profit!
+* Add the card (see configuration below).
+* Hard-refresh the browser (Ctrl+F5) after updating the JS.
 
-# HACS installation
+### HACS
 
-If you prefer to manage the card via HACS:
-
-1. Open HACS in Home Assistant and add `https://github.com/wichers/lovelace-comfoair` as a **Custom Repository** in the *Lovelace* category.
-2. Find **Comfoair ventilation lovelace component** in the list of custom repositories and install it.
-3. Make sure the following resource is added to your configuration:
+1. HACS → Custom repositories → add this repository as **Dashboard** / Lovelace.
+2. Download **Comfoair ventilation lovelace component**.
+3. Resource (usually added automatically):
    ```yaml
    url: /hacsfiles/lovelace-comfoair/comfoair-card.js
    type: module
    ```
-4. Use the card with `type: 'custom:comfoair-card'`, your climate entity, and a matching `prefix` as shown above.
 
 ## Configuration
+
+Minimal example for an ESPHome device named `esphome-comfoair200`:
+
+```yaml
+type: custom:comfoair-card
+entity: climate.esphome_comfoair200_comfoair_200
+prefix: esphome_comfoair200
+```
 
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
 | `entity` | yes | — | Climate entity of the ComfoAir unit |
-| `prefix` | no | `comfoair` | Prefix used for sensor / binary_sensor entity IDs (ESPHome device name with `_`) |
+| `prefix` | no | `comfoair` | Prefix for sensor / binary_sensor IDs (ESPHome device name with `_`) |
+| `name` | no | `ComfoAir` | Card title |
+| `animation` | no | `static` | `static` or `animated` (flow particles + spinning fans) |
+| `animation_speed_source` | no | `fixed` | `fixed` (%) or `level` (from supply/return air level) |
+| `animation_speed` | no | `50` | Speed when source is `fixed` (10–200; 100 = baseline) |
+| `color_scale` | no | `auto` | `auto` stretches over current temps; `fixed` uses min/max |
+| `temp_min` | no | `-10` | Lower bound for fixed color scale (°C) |
+| `temp_max` | no | `30` | Upper bound for fixed color scale (°C) |
+| `show_legend` | no | `false` | Show temperature color legend |
 
-Optional full entity overrides (if your IDs don't follow `{domain}.{prefix}_{suffix}`):
+### Entity IDs
 
-`outside_air_temperature`, `intake_fan_speed_rpm`, `exhaust_air_temperature`, `exhaust_fan_speed_rpm`, `return_air_temperature`, `return_air_level`, `supply_air_temperature`, `supply_air_level`, `filter_status`, `supply_fan_active`, `bypass_valve_open`, `preheating_state`, `summer_mode`.
+With `prefix: esphome_comfoair200` the card expects:
 
-Example with overrides:
+| Role | Entity |
+|------|--------|
+| Outside temp | `sensor.{prefix}_outside_air_temperature` |
+| Exhaust temp | `sensor.{prefix}_exhaust_air_temperature` |
+| Extract / return temp | `sensor.{prefix}_return_air_temperature` |
+| Supply temp | `sensor.{prefix}_supply_air_temperature` |
+| Intake fan RPM | `sensor.{prefix}_intake_fan_speed_rpm` |
+| Exhaust fan RPM | `sensor.{prefix}_exhaust_fan_speed_rpm` |
+| Return air level | `sensor.{prefix}_return_air_level` |
+| Supply air level | `sensor.{prefix}_supply_air_level` |
+| Filter | `sensor.{prefix}_filter_status` |
+| Bypass | `binary_sensor.{prefix}_bypass_valve_open` |
+| Preheat | `binary_sensor.{prefix}_preheating_state` |
+| Summer mode | `binary_sensor.{prefix}_summer_mode` |
+
+Override any of those with a full entity ID using the same key name, e.g. `outside_air_temperature: sensor.my_temp`. TimWeyand-style aliases (`tempSensor1`…`tempSensor4`, `fan_speed_supply`, `filterstatus`, `bypass_valve`, `preheat`) are also accepted.
+
+### Example with options
 
 ```yaml
 type: custom:comfoair-card
-entity: climate.comfoair_200
+entity: climate.esphome_comfoair200_comfoair_200
 prefix: esphome_comfoair200
-filter_status: sensor.my_custom_filter_sensor
+name: Ventilation
+animation: animated
+animation_speed_source: level
+show_legend: true
 ```
 
+## Credits
+
+* Original card: [wichers/lovelace-comfoair](https://github.com/wichers/lovelace-comfoair)
+* Visualization design: [TimWeyand/lovelace-comfoair](https://github.com/TimWeyand/lovelace-comfoair)
+* ESPHome integration: [wichers/esphome-comfoair](https://github.com/wichers/esphome-comfoair)

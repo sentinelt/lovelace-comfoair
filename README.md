@@ -54,6 +54,15 @@ resources:
 
 ## Configuration
 
+### UI editor
+
+1. Edit dashboard → **Add card** → search for **ComfoAir Card** (or paste the YAML below).
+2. Pick the **climate** entity — the sensor prefix is filled automatically.
+3. Adjust animation / color scale as needed.
+4. Open **Advanced / entity overrides** only if individual sensors need remapping.
+
+### YAML
+
 Minimal example — only the climate entity is required; the sensor **prefix is auto-detected**:
 
 ```yaml

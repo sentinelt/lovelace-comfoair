@@ -15,7 +15,7 @@ Visualization inspired by [TimWeyand/lovelace-comfoair](https://github.com/TimWe
 - Optional **animated** airflows and spinning fans
 - Optional temperature **legend**
 - Click a temperature / rpm / % value to open Home Assistant more-info history
-- Configurable **entity prefix** for ESPHome device names (no hardcoded `comfoair_*` IDs)
+- **Auto-detected entity prefix** from the climate entity (device siblings / object_id heuristics); optional `prefix` override
 - Missing entities are listed instead of throwing in the browser console
 
 
@@ -54,18 +54,26 @@ resources:
 
 ## Configuration
 
-Minimal example for an ESPHome device named `esphome-comfoair200`:
+Minimal example — only the climate entity is required; the sensor **prefix is auto-detected**:
 
 ```yaml
 type: custom:comfoair-card
 entity: climate.esphome_comfoair200_comfoair_200
-prefix: esphome_comfoair200
+# prefix: esphome_comfoair200   # optional override if auto-detect is wrong
 ```
+
+How prefix auto-detection works:
+
+1. Explicit `prefix` in config (if set)
+2. Sibling entities on the same HA **device** as the climate entity
+3. Score candidate prefixes derived from the climate object_id against live `sensor.*` states  
+   (e.g. `climate.esphome_comfoair200_comfoair_200` → tries `…_comfoair_200`, then `esphome_comfoair200`, …)
+4. Fallback `comfoair` (legacy)
 
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
 | `entity` | yes | — | Climate entity of the ComfoAir unit |
-| `prefix` | no | `comfoair` | Prefix for sensor / binary_sensor IDs (ESPHome device name with `_`) |
+| `prefix` | no | *auto* | Prefix for sensor / binary_sensor IDs; auto-derived from the climate entity when omitted |
 | `name` | no | `ComfoAir` | Card title |
 | `animation` | no | `static` | `static` or `animated` (flow particles + spinning fans) |
 | `animation_speed_source` | no | `fixed` | `fixed` (%) or `level` (from supply/return air level) |
@@ -101,7 +109,6 @@ Override any of those with a full entity ID using the same key name, e.g. `outsi
 ```yaml
 type: custom:comfoair-card
 entity: climate.esphome_comfoair200_comfoair_200
-prefix: esphome_comfoair200
 name: Ventilation
 animation: animated
 animation_speed_source: level

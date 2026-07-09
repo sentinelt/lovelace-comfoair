@@ -13,6 +13,7 @@ Visualization inspired by [TimWeyand/lovelace-comfoair](https://github.com/TimWe
 - Setpoint (− / +) and fan modes (Off / Low / Medium / High)
 - Status row: Fan, Filter, **Error**, Bypass, Preheat, Summer/Winter
 - **Filter / error reset**: click an active Filter or Error chip to confirm and press the matching HA button
+- Optional **service / test mode** dialog (`enable_test_mode`, default off)
 - Optional **animated** airflows and spinning fans
 - Optional temperature **legend**
 - Click a temperature / rpm / % value to open Home Assistant more-info history
@@ -93,6 +94,7 @@ How prefix auto-detection works:
 | `temp_min` | no | `-20` | Lower bound for fixed color scale (°C); at or below → dark blue |
 | `temp_max` | no | `40` | Upper bound for fixed color scale (°C); at or above → red |
 | `show_legend` | no | `false` | Show temperature color legend |
+| `enable_test_mode` | no | `false` | Show header button that opens the service/test dialog |
 
 ### Entity IDs
 
@@ -127,6 +129,15 @@ The status row shows fan, filter, **error**, bypass, preheat, and season.
 
 Requires esphome-comfoair with `error_status`, `filter_reset`, and `error_reset` configured under `comfoair:`.
 
+### Service / test mode
+
+Both sides are **off by default**:
+
+1. ESPHome: `enable_test_mode: true` under `comfoair:` (auto-creates test entities).
+2. Card: `enable_test_mode: true` in the card config (shows a test-tube button in the header).
+
+The dialog can enter/exit PC test mode, start self-test, drive bypass/preheat flaps, set supply/exhaust/post-heat %, and toggle relays/filter LED. Controls that require an active test mode session are dimmed until the master switch is on.
+
 ### Example with options
 
 ```yaml
@@ -136,6 +147,7 @@ name: Ventilation
 animation: animated
 animation_speed_source: level
 show_legend: true
+# enable_test_mode: true  # optional service dialog
 ```
 
 ## Credits

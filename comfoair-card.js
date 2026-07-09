@@ -23,6 +23,7 @@ import { svg } from "https://unpkg.com/lit-html@1.4.1/lit-html.js?module";
  *   temp_min: -20                                       # dark blue at/below this
  *   temp_max: 40                                        # red at/above this
  *   show_legend: false
+ *   enable_test_mode: false                             # show service/test dialog button
  *
  * Entity IDs default to {domain}.{prefix}_{suffix}. When prefix is omitted it
  * is derived from the climate entity (device siblings or object_id heuristics).
@@ -30,6 +31,7 @@ import { svg } from "https://unpkg.com/lit-html@1.4.1/lit-html.js?module";
  *
  * Optional entities (defaults from prefix):
  *   error_status, filter_reset, error_reset — error chip + filter/error resets
+ *   test_mode, self_test, test_* — PC test-mode (requires enable_test_mode)
  */
 
 /** Sensor suffixes used to probe which prefix matches live HA entities. */
@@ -342,11 +344,26 @@ function statusChip(kind, raw, fanMode) {
   }
 }
 
+/** Flap select options used by esphome-comfoair test mode. */
+const FLAP_OPTIONS = ["Closed", "Open", "Stop"];
+
+/** Relay / output switches exposed in test mode. */
+const TEST_OUTPUT_SWITCHES = [
+  { key: "testPreheatRelay", suffix: "test_preheat_relay", label: "Preheat relay" },
+  { key: "testPreheatTriac", suffix: "test_preheat_triac", label: "Preheat triac" },
+  { key: "testEwtSupply", suffix: "test_ewt_supply", label: "EWT supply" },
+  { key: "testEwtDirection", suffix: "test_ewt_direction", label: "EWT direction" },
+  { key: "testKitchenHood", suffix: "test_kitchen_hood", label: "Kitchen hood" },
+  { key: "testErrorOutput", suffix: "test_error_output", label: "Error output" },
+  { key: "testFilterLed", suffix: "test_filter_led", label: "Filter LED" },
+];
+
 class ComfoAirCard extends LitElement {
   static get properties() {
     return {
       hass: {},
       config: {},
+      _testDialogOpen: { type: Boolean },
     };
   }
 
@@ -354,6 +371,7 @@ class ComfoAirCard extends LitElement {
     super();
     // Unique SVG paint-server IDs when multiple cards share a page
     this._uid = Math.random().toString(36).slice(2, 9);
+    this._testDialogOpen = false;
   }
 
   setConfig(config) {
@@ -361,6 +379,11 @@ class ComfoAirCard extends LitElement {
       throw new Error("Please define a climate entity (entity: climate....)");
     }
     this.config = config;
+  }
+
+  /** Card-level flag (default false). ESPHome must also enable test mode. */
+  _testModeEnabled() {
+    return this.config?.enable_test_mode === true;
   }
 
   static async getConfigElement() {
@@ -483,6 +506,68 @@ class ComfoAirCard extends LitElement {
         "error_reset",
         "error_reset"
       ),
+      testMode: this._entityId("switch", "test_mode", "test_mode"),
+      selfTest: this._entityId("button", "self_test", "self_test"),
+      testSupplyFan: this._entityId(
+        "number",
+        "test_supply_fan",
+        "test_supply_fan"
+      ),
+      testExhaustFan: this._entityId(
+        "number",
+        "test_exhaust_fan",
+        "test_exhaust_fan"
+      ),
+      testPostheat: this._entityId(
+        "number",
+        "test_postheat",
+        "test_postheat"
+      ),
+      testBypassFlap: this._entityId(
+        "select",
+        "test_bypass_flap",
+        "test_bypass_flap"
+      ),
+      testPreheatFlap: this._entityId(
+        "select",
+        "test_preheat_flap",
+        "test_preheat_flap"
+      ),
+      testPreheatRelay: this._entityId(
+        "switch",
+        "test_preheat_relay",
+        "test_preheat_relay"
+      ),
+      testPreheatTriac: this._entityId(
+        "switch",
+        "test_preheat_triac",
+        "test_preheat_triac"
+      ),
+      testEwtSupply: this._entityId(
+        "switch",
+        "test_ewt_supply",
+        "test_ewt_supply"
+      ),
+      testEwtDirection: this._entityId(
+        "switch",
+        "test_ewt_direction",
+        "test_ewt_direction"
+      ),
+      testKitchenHood: this._entityId(
+        "switch",
+        "test_kitchen_hood",
+        "test_kitchen_hood"
+      ),
+      testErrorOutput: this._entityId(
+        "switch",
+        "test_error_output",
+        "test_error_output"
+      ),
+      testFilterLed: this._entityId(
+        "switch",
+        "test_filter_led",
+        "test_filter_led"
+      ),
       bypass: this._entityId(
         "binary_sensor",
         "bypass_valve_open",
@@ -574,6 +659,41 @@ class ComfoAirCard extends LitElement {
     if (!this.hass || !entityId) return;
     if (!this.hass.states[entityId]) return;
     this.hass.callService("button", "press", { entity_id: entityId });
+  }
+
+  _turnSwitch(entityId, on) {
+    if (!this.hass || !entityId || !this.hass.states[entityId]) return;
+    this.hass.callService("switch", on ? "turn_on" : "turn_off", {
+      entity_id: entityId,
+    });
+  }
+
+  _setNumber(entityId, value) {
+    if (!this.hass || !entityId || !this.hass.states[entityId]) return;
+    this.hass.callService("number", "set_value", {
+      entity_id: entityId,
+      value: Number(value),
+    });
+  }
+
+  _setSelect(entityId, option) {
+    if (!this.hass || !entityId || !this.hass.states[entityId]) return;
+    this.hass.callService("select", "select_option", {
+      entity_id: entityId,
+      option,
+    });
+  }
+
+  _openTestDialog() {
+    this._testDialogOpen = true;
+  }
+
+  _closeTestDialog() {
+    this._testDialogOpen = false;
+  }
+
+  _onTestDialogKey(ev) {
+    if (ev.key === "Escape") this._closeTestDialog();
   }
 
   /**
@@ -796,6 +916,9 @@ class ComfoAirCard extends LitElement {
       </div>
     `;
 
+    const testModeOn =
+      this._stateValue(ids.testMode, "off") === "on";
+
     return html`
       <ha-card class=${animated ? "animated" : ""}>
         <div class="hd">
@@ -812,6 +935,15 @@ class ComfoAirCard extends LitElement {
             </div>
           </div>
           <div class="grow"></div>
+          ${this._testModeEnabled()
+            ? html`<button
+                class="testbtn ${testModeOn ? "live" : ""}"
+                title="Open test mode dialog"
+                @click=${() => this._openTestDialog()}
+              >
+                <ha-icon icon="mdi:test-tube"></ha-icon>
+              </button>`
+            : ""}
           <div class="recov">
             ${recov != null
               ? html`<b>${recov}%</b><span>Recovery</span>`
@@ -935,7 +1067,186 @@ class ComfoAirCard extends LitElement {
             </div>`
           )}
         </div>
+        ${this._testModeEnabled() && this._testDialogOpen
+          ? this._renderTestDialog(ids, testModeOn)
+          : ""}
       </ha-card>
+    `;
+  }
+
+  _renderTestDialog(ids, testModeOn) {
+    const hasTestMode = !!this.hass?.states?.[ids.testMode];
+    const hasSelfTest = !!this.hass?.states?.[ids.selfTest];
+    const numVal = (id) => {
+      const n = this._numState(id);
+      return n == null ? 0 : n;
+    };
+    const flapVal = (id) => {
+      const v = this._stateValue(id, "Closed");
+      return FLAP_OPTIONS.includes(v) ? v : "Closed";
+    };
+    const swOn = (id) => this._stateValue(id, "off") === "on";
+
+    return html`
+      <div
+        class="dlg-backdrop"
+        @click=${(e) => {
+          if (e.target === e.currentTarget) this._closeTestDialog();
+        }}
+        @keydown=${this._onTestDialogKey}
+      >
+        <div
+          class="dlg"
+          role="dialog"
+          aria-modal="true"
+          aria-label="ComfoAir test mode"
+        >
+          <div class="dlg-hd">
+            <ha-icon icon="mdi:test-tube"></ha-icon>
+            <div>
+              <div class="dlg-ttl">Service / test mode</div>
+              <div class="dlg-sub">
+                Overrides normal operation. Exit when finished.
+              </div>
+            </div>
+            <button class="dlg-x" @click=${() => this._closeTestDialog()} aria-label="Close">
+              <ha-icon icon="mdi:close"></ha-icon>
+            </button>
+          </div>
+
+          ${!hasTestMode
+            ? html`<div class="dlg-warn">
+                No <code>switch…_test_mode</code> entity found. Enable
+                <code>enable_test_mode: true</code> on the ESPHome comfoair
+                component and reflash.
+              </div>`
+            : ""}
+
+          <section class="dlg-sec">
+            <div class="dlg-row">
+              <div>
+                <div class="dlg-lab">PC test mode</div>
+                <div class="dlg-hint">Enter (0x01) / exit (0x19)</div>
+              </div>
+              <label class="tgl ${!hasTestMode ? "dis" : ""}">
+                <input
+                  type="checkbox"
+                  .checked=${testModeOn}
+                  ?disabled=${!hasTestMode}
+                  @change=${(e) =>
+                    this._turnSwitch(ids.testMode, e.target.checked)}
+                />
+                <span>${testModeOn ? "On" : "Off"}</span>
+              </label>
+            </div>
+            <div class="dlg-row">
+              <div>
+                <div class="dlg-lab">Self-test</div>
+                <div class="dlg-hint">Unit self-test (0xDB)</div>
+              </div>
+              <button
+                class="dlg-act"
+                ?disabled=${!hasSelfTest}
+                @click=${() => {
+                  if (
+                    window.confirm(
+                      "Start the ventilation unit self-test? Fans and flaps will cycle."
+                    )
+                  ) {
+                    this._pressButton(ids.selfTest);
+                  }
+                }}
+              >
+                Start
+              </button>
+            </div>
+          </section>
+
+          <section class="dlg-sec ${testModeOn ? "" : "dim"}">
+            <div class="dlg-sec-ttl">Flaps ${testModeOn ? "" : "(enter test mode first)"}</div>
+            ${[
+              { id: ids.testBypassFlap, label: "Bypass" },
+              { id: ids.testPreheatFlap, label: "Preheat" },
+            ].map(
+              (f) => html`<div class="dlg-row col">
+                <div class="dlg-lab">${f.label}</div>
+                <div class="seg">
+                  ${FLAP_OPTIONS.map(
+                    (opt) => html`<button
+                      class=${flapVal(f.id) === opt ? "on" : ""}
+                      ?disabled=${!testModeOn || !this.hass?.states?.[f.id]}
+                      @click=${() => this._setSelect(f.id, opt)}
+                    >
+                      ${opt}
+                    </button>`
+                  )}
+                </div>
+              </div>`
+            )}
+          </section>
+
+          <section class="dlg-sec ${testModeOn ? "" : "dim"}">
+            <div class="dlg-sec-ttl">Fans / post-heat</div>
+            ${[
+              { id: ids.testSupplyFan, label: "Supply fan" },
+              { id: ids.testExhaustFan, label: "Exhaust fan" },
+              { id: ids.testPostheat, label: "Post-heat" },
+            ].map(
+              (n) => html`<div class="dlg-row col">
+                <div class="dlg-lab">
+                  ${n.label}
+                  <span class="dlg-val">${numVal(n.id)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  .value=${String(numVal(n.id))}
+                  ?disabled=${!testModeOn || !this.hass?.states?.[n.id]}
+                  @change=${(e) => this._setNumber(n.id, e.target.value)}
+                />
+              </div>`
+            )}
+          </section>
+
+          <section class="dlg-sec ${testModeOn ? "" : "dim"}">
+            <div class="dlg-sec-ttl">Outputs / relays</div>
+            <div class="dlg-grid">
+              ${TEST_OUTPUT_SWITCHES.map((o) => {
+                const id = ids[o.key];
+                return html`<label
+                  class="chipsw ${!testModeOn || !this.hass?.states?.[id]
+                    ? "dis"
+                    : ""}"
+                >
+                  <input
+                    type="checkbox"
+                    .checked=${swOn(id)}
+                    ?disabled=${!testModeOn || !this.hass?.states?.[id]}
+                    @change=${(e) => this._turnSwitch(id, e.target.checked)}
+                  />
+                  <span>${o.label}</span>
+                </label>`;
+              })}
+            </div>
+          </section>
+
+          <div class="dlg-ft">
+            <button class="dlg-act ghost" @click=${() => this._closeTestDialog()}>
+              Close
+            </button>
+            ${testModeOn
+              ? html`<button
+                  class="dlg-act danger"
+                  @click=${() => this._turnSwitch(ids.testMode, false)}
+                >
+                  Exit test mode
+                </button>`
+              : ""}
+          </div>
+        </div>
+      </div>
     `;
   }
 
@@ -1266,6 +1577,219 @@ class ComfoAirCard extends LitElement {
         text-align: right;
       }
 
+      .testbtn {
+        width: 36px;
+        height: 36px;
+        border: 0;
+        border-radius: 10px;
+        background: transparent;
+        color: var(--secondary-text-color);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 6px;
+      }
+      .testbtn:hover {
+        color: var(--primary-text-color);
+        background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+      }
+      .testbtn.live {
+        color: #e53935;
+        background: color-mix(in srgb, #e53935 14%, transparent);
+      }
+      .testbtn ha-icon {
+        --mdc-icon-size: 22px;
+      }
+
+      .dlg-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        background: rgba(0, 0, 0, 0.45);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+      }
+      .dlg {
+        width: min(440px, 100%);
+        max-height: min(90vh, 720px);
+        overflow: auto;
+        background: var(--card-background-color, var(--ha-card-background, #1c1c1c));
+        color: var(--primary-text-color);
+        border-radius: 14px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+        padding: 14px 16px 12px;
+      }
+      .dlg-hd {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      .dlg-hd > ha-icon {
+        --mdc-icon-size: 26px;
+        color: var(--primary-color);
+        margin-top: 2px;
+      }
+      .dlg-ttl {
+        font-weight: 700;
+        font-size: 16px;
+      }
+      .dlg-sub {
+        font-size: 12px;
+        color: var(--secondary-text-color);
+        margin-top: 2px;
+      }
+      .dlg-x {
+        margin-left: auto;
+        border: 0;
+        background: transparent;
+        color: var(--secondary-text-color);
+        cursor: pointer;
+        border-radius: 8px;
+        padding: 4px;
+      }
+      .dlg-warn {
+        background: color-mix(in srgb, #f5a623 16%, transparent);
+        color: var(--primary-text-color);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 12.5px;
+        margin-bottom: 12px;
+        line-height: 1.4;
+      }
+      .dlg-sec {
+        border-top: 1px solid var(--divider-color);
+        padding: 10px 0 4px;
+      }
+      .dlg-sec.dim {
+        opacity: 0.55;
+      }
+      .dlg-sec-ttl {
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--secondary-text-color);
+        margin-bottom: 8px;
+      }
+      .dlg-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+      .dlg-row.col {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .dlg-lab {
+        font-size: 13.5px;
+        font-weight: 600;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .dlg-hint {
+        font-size: 11px;
+        color: var(--secondary-text-color);
+      }
+      .dlg-val {
+        font-variant-numeric: tabular-nums;
+        color: var(--secondary-text-color);
+        font-weight: 600;
+      }
+      .dlg-act {
+        border: 0;
+        border-radius: 8px;
+        padding: 7px 14px;
+        background: var(--primary-color);
+        color: var(--text-primary-color, #fff);
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .dlg-act:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .dlg-act.ghost {
+        background: transparent;
+        color: var(--primary-text-color);
+        border: 1px solid var(--divider-color);
+      }
+      .dlg-act.danger {
+        background: #e53935;
+      }
+      .tgl {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .tgl.dis {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .seg {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px;
+      }
+      .seg button {
+        border: 1px solid var(--divider-color);
+        background: transparent;
+        color: var(--secondary-text-color);
+        border-radius: 8px;
+        padding: 6px 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .seg button.on {
+        background: var(--primary-color);
+        color: var(--text-primary-color, #fff);
+        border-color: var(--primary-color);
+      }
+      .seg button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .dlg-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+      }
+      .chipsw {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12.5px;
+        padding: 6px 8px;
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--primary-color) 6%, transparent);
+        cursor: pointer;
+      }
+      .chipsw.dis {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .dlg-ft {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 8px;
+        padding-top: 10px;
+        border-top: 1px solid var(--divider-color);
+      }
+      input[type="range"] {
+        width: 100%;
+      }
+
       .status {
         display: grid;
         grid-template-columns: repeat(6, 1fr);
@@ -1403,6 +1927,7 @@ class ComfoAirCardEditor extends LitElement {
       temp_min: "Fixed scale min (°C)",
       temp_max: "Fixed scale max (°C)",
       show_legend: "Show temperature legend",
+      enable_test_mode: "Enable test mode UI",
       outside_air_temperature: "Outside air temperature",
       exhaust_air_temperature: "Exhaust air temperature",
       return_air_temperature: "Extract / return air temperature",
@@ -1517,6 +2042,7 @@ class ComfoAirCardEditor extends LitElement {
     }
 
     schema.push({ name: "show_legend", selector: { boolean: {} } });
+    schema.push({ name: "enable_test_mode", selector: { boolean: {} } });
     return schema;
   }
 

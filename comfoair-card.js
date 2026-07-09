@@ -14,7 +14,7 @@ import { svg } from "https://unpkg.com/lit-html@1.4.1/lit-html.js?module";
  * Config:
  *   type: custom:comfoair-card
  *   entity: climate.esphome_comfoair200_comfoair_200   # required
- *   prefix: esphome_comfoair200                         # optional, default "comfoair"
+ *   prefix: esphome_comfoair200                         # optional; auto-detected from entity
  *   name: ComfoAir                                      # optional title
  *   animation: static | animated                        # default static
  *   animation_speed_source: fixed | level               # default fixed
@@ -24,9 +24,135 @@ import { svg } from "https://unpkg.com/lit-html@1.4.1/lit-html.js?module";
  *   temp_max: 40                                        # red at/above this
  *   show_legend: false
  *
- * Entity IDs default to {domain}.{prefix}_{suffix}. Override any with a full
- * entity_id using the keys listed below (or TimWeyand-compatible aliases).
+ * Entity IDs default to {domain}.{prefix}_{suffix}. When prefix is omitted it
+ * is derived from the climate entity (device siblings or object_id heuristics).
+ * Override any key with a full entity_id (or TimWeyand-compatible aliases).
  */
+
+/** Sensor suffixes used to probe which prefix matches live HA entities. */
+const PREFIX_PROBE_SUFFIXES = [
+  "outside_air_temperature",
+  "supply_air_temperature",
+  "return_air_temperature",
+  "exhaust_air_temperature",
+  "intake_fan_speed_rpm",
+  "exhaust_fan_speed_rpm",
+  "return_air_level",
+  "supply_air_level",
+];
+
+/**
+ * Candidate prefixes from a climate entity_id object_id, longest first.
+ * climate.esphome_comfoair200_comfoair_200 →
+ *   esphome_comfoair200_comfoair_200, esphome_comfoair200_comfoair, esphome_comfoair200, …
+ */
+function prefixCandidatesFromClimate(climateEntityId) {
+  if (!climateEntityId || !climateEntityId.includes(".")) return ["comfoair"];
+  let objectId = climateEntityId.split(".", 2)[1] || "";
+  if (!objectId) return ["comfoair"];
+
+  const candidates = [];
+  const push = (p) => {
+    if (p && !candidates.includes(p)) candidates.push(p);
+  };
+
+  push(objectId);
+  if (objectId.endsWith("_climate")) {
+    push(objectId.slice(0, -"_climate".length));
+  }
+
+  const parts = objectId.split("_");
+  for (let i = parts.length - 1; i >= 1; i--) {
+    push(parts.slice(0, i).join("_"));
+  }
+
+  push("comfoair");
+  return candidates;
+}
+
+/**
+ * Infer sensor prefix from HA device registry siblings of the climate entity.
+ * e.g. climate + sensor.esphome_comfoair200_outside_air_temperature → esphome_comfoair200
+ */
+function prefixFromDevice(hass, climateEntityId) {
+  const deviceId = hass?.entities?.[climateEntityId]?.device_id;
+  if (!deviceId || !hass.entities) return null;
+
+  for (const id of Object.keys(hass.entities)) {
+    if (hass.entities[id].device_id !== deviceId) continue;
+    if (!id.startsWith("sensor.") && !id.startsWith("binary_sensor.")) continue;
+    const objectId = id.split(".", 2)[1] || "";
+    for (const suffix of PREFIX_PROBE_SUFFIXES) {
+      if (objectId.endsWith(`_${suffix}`)) {
+        return objectId.slice(0, -(suffix.length + 1));
+      }
+    }
+    // filter / bypass / preheat / summer (binary or sensor)
+    for (const suffix of [
+      "filter_status",
+      "bypass_valve_open",
+      "preheating_state",
+      "summer_mode",
+      "supply_fan_active",
+    ]) {
+      if (objectId.endsWith(`_${suffix}`)) {
+        return objectId.slice(0, -(suffix.length + 1));
+      }
+    }
+  }
+  return null;
+}
+
+/** Score how many probe sensors exist for a given prefix. */
+function scorePrefix(hass, prefix) {
+  if (!hass?.states || !prefix) return 0;
+  let score = 0;
+  for (const suffix of PREFIX_PROBE_SUFFIXES) {
+    if (hass.states[`sensor.${prefix}_${suffix}`]) score += 1;
+  }
+  return score;
+}
+
+/**
+ * Resolve the entity ID prefix used for sensors/binary_sensors.
+ * Explicit config.prefix wins; otherwise device registry / live-state scoring /
+ * climate object_id heuristics; finally "comfoair".
+ */
+function resolvePrefix(hass, climateEntityId, explicitPrefix) {
+  if (explicitPrefix) return explicitPrefix;
+
+  const fromDevice = prefixFromDevice(hass, climateEntityId);
+  if (fromDevice && scorePrefix(hass, fromDevice) > 0) {
+    return fromDevice;
+  }
+
+  const candidates = prefixCandidatesFromClimate(climateEntityId);
+  if (fromDevice && !candidates.includes(fromDevice)) {
+    candidates.unshift(fromDevice);
+  }
+
+  let best = null;
+  let bestScore = 0;
+  for (const p of candidates) {
+    const s = scorePrefix(hass, p);
+    if (s > bestScore) {
+      bestScore = s;
+      best = p;
+    }
+  }
+  if (best && bestScore > 0) return best;
+
+  // No live match: strip common climate entity tails from the object_id
+  // (ESPHome: climate.esphome_comfoair200_comfoair_200 → esphome_comfoair200).
+  const objectId = (climateEntityId || "").split(".", 2)[1] || "";
+  const stripped = objectId
+    .replace(/_climate$/i, "")
+    .replace(/_comfoair(_\d+)?$/i, "")
+    .replace(/_+$/g, "");
+  if (stripped) return stripped;
+
+  return candidates[0] || "comfoair";
+}
 
 const SUPPLY_PATH = "M6,19 H120 L320,113 H434";
 const EXHAUST_PATH = "M434,19 H320 L120,113 H6";
@@ -213,12 +339,17 @@ class ComfoAirCard extends LitElement {
     return 5;
   }
 
+  /** Effective sensor prefix (config or auto-detected from climate entity). */
+  _prefix() {
+    return resolvePrefix(this.hass, this.config?.entity, this.config?.prefix);
+  }
+
   /** Resolve entity id: config override, TimWeyand alias, or domain.prefix_suffix. */
   _entityId(domain, suffix, ...configKeys) {
     for (const key of configKeys) {
       if (this.config[key]) return this.config[key];
     }
-    const prefix = this.config.prefix || "comfoair";
+    const prefix = this._prefix();
     return `${domain}.${prefix}_${suffix}`;
   }
 
@@ -411,15 +542,18 @@ class ComfoAirCard extends LitElement {
 
     const missing = this._missingEntities();
     if (missing.length) {
-      const prefix = this.config.prefix || "comfoair";
+      const prefix = this._prefix();
+      const prefixSource = this.config.prefix
+        ? "from config"
+        : "auto-detected from climate entity";
       return html`
         <ha-card>
           <div class="not-found">
             <strong>ComfoAir card: missing entities</strong>
             <p>
-              Expected sensors with prefix <code>${prefix}</code>.
-              Set <code>prefix:</code> to match your ESPHome device name
-              (underscores, no domain), or override individual entity IDs.
+              Expected sensors with prefix <code>${prefix}</code>
+              (${prefixSource}). Set <code>prefix:</code> explicitly if
+              auto-detection is wrong, or override individual entity IDs.
             </p>
             <ul>
               ${missing.map((id) => html`<li><code>${id}</code></li>`)}

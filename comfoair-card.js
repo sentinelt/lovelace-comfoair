@@ -757,6 +757,12 @@ class ComfoAirCard extends LitElement {
           </div>
 
           <div class="flowband">
+            <div class="sidemark out" title="Outside" aria-label="Outside">
+              <ha-icon icon="mdi:pine-tree"></ha-icon>
+            </div>
+            <div class="sidemark in" title="Inside" aria-label="Inside">
+              <ha-icon icon="mdi:home-outline"></ha-icon>
+            </div>
             <svg
               class="airsvg"
               viewBox="0 0 440 132"
@@ -1131,6 +1137,27 @@ class ComfoAirCard extends LitElement {
         position: relative;
         width: 100%;
         aspect-ratio: 440 / 132;
+      }
+      .sidemark {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--secondary-text-color);
+        pointer-events: none;
+      }
+      .sidemark.out {
+        left: 5%;
+      }
+      .sidemark.in {
+        right: 5%;
+      }
+      .sidemark ha-icon {
+        --mdc-icon-size: 32px;
+        opacity: 0.85;
       }
       .airsvg {
         position: absolute;

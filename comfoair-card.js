@@ -1077,7 +1077,7 @@ class ComfoAirCard extends LitElement {
 
           <div class="flowband">
             <div class="sidemark out" title="Outside" aria-label="Outside">
-              <ha-icon icon="mdi:tree-outline"></ha-icon>
+              <ha-icon icon="mdi:pine-tree"></ha-icon>
             </div>
             <div class="sidemark in" title="Inside" aria-label="Inside">
               <ha-icon icon="mdi:home-outline"></ha-icon>

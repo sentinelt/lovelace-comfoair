@@ -1647,31 +1647,21 @@ class ComfoAirCard extends LitElement {
         top: 50%;
         transform: translateY(-50%);
         z-index: 3;
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
         color: var(--secondary-text-color);
-        background: color-mix(
-          in srgb,
-          var(--card-background-color) 82%,
-          transparent
-        );
-        border: 1px solid
-          color-mix(in srgb, var(--divider-color) 80%, transparent);
         pointer-events: none;
       }
       .sidemark.out {
-        left: 6%;
+        left: 5%;
       }
       .sidemark.in {
-        right: 6%;
+        right: 5%;
       }
       .sidemark ha-icon {
-        --mdc-icon-size: 18px;
-        opacity: 0.9;
+        --mdc-icon-size: 32px;
+        opacity: 0.85;
       }
       .airsvg {
         position: absolute;
